@@ -1,22 +1,22 @@
-import express from 'express';
-import cors from 'cors';
-import multer from 'multer';
-import fs from 'fs/promises';
-import { existsSync } from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
+'use strict';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PROJECTS_ROOT = path.resolve(__dirname, '..');
+const express = require('express');
+const cors = require('cors');
+const multer = require('multer');
+const fs = require('fs').promises;
+const path = require('path');
+
+// В exe: папка с exe считаем "admin", проекты — на уровень выше
+const isPkg = typeof process.pkg !== 'undefined';
+const appDir = isPkg ? path.dirname(process.execPath) : __dirname;
+const PROJECTS_ROOT = path.resolve(appDir, '..');
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
-const staticDir = path.join(__dirname, 'dist');
-const fallbackDir = path.join(__dirname, 'public');
-const useDist = existsSync(staticDir);
-app.use(express.static(useDist ? staticDir : fallbackDir));
+const staticDir = path.join(appDir, 'dist');
+app.use(express.static(staticDir));
 
 const storage = multer.diskStorage({
   destination: async (req, file, cb) => {
@@ -116,9 +116,7 @@ app.get('/api/images', async (req, res) => {
   }
 });
 
-if (useDist) {
-  app.get('*', (req, res) => res.sendFile(path.join(staticDir, 'index.html')));
-}
+app.get('*', (req, res) => res.sendFile(path.join(staticDir, 'index.html')));
 
 const PORT = process.env.PORT || 3333;
 app.listen(PORT, () => console.log(`Admin: http://localhost:${PORT}`));

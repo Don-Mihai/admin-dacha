@@ -3,12 +3,14 @@
   "version": "1.0.0",
   "description": "Общая админка для редактирования данных проектов Уткина дача",
   "type": "module",
-  "main": "server.js",
+  "main": "server.pkg.cjs",
   "scripts": {
-    "start": "node server.js",
+    "start": "node server.pkg.cjs",
     "dev": "concurrently \"npm run server\" \"vite\"",
-    "server": "node server.js",
-    "build": "vite build"
+    "server": "node server.pkg.cjs",
+    "build": "vite build",
+    "build:exe": "npm run build && pkg . --targets node18-win-x64 --output utkina-admin.exe",
+    "pkg": "pkg . --targets node18-win-x64 --output utkina-admin.exe"
   },
   "dependencies": {
     "@emotion/react": "^11.13.3",
@@ -24,6 +26,13 @@
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.3",
     "concurrently": "^9.1.0",
+    "pkg": "^5.8.1",
     "vite": "^5.4.10"
+  },
+  "pkg": {
+    "scripts": "server.pkg.cjs",
+    "assets": [
+      "dist/**/*"
+    ]
   }
 }
