@@ -4,6 +4,7 @@
   "description": "Общая админка для редактирования данных проектов Уткина дача",
   "type": "module",
   "main": "server.pkg.cjs",
+  "bin": "server.pkg.cjs",
   "scripts": {
     "start": "node server.pkg.cjs",
     "dev": "concurrently \"npm run server\" \"vite\"",
