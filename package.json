@@ -10,8 +10,8 @@
     "dev": "concurrently \"npm run server\" \"vite\"",
     "server": "node server.pkg.cjs",
     "build": "vite build",
-    "build:exe": "npm run build && pkg . --targets node18-win-x64 --output utkina-admin.exe",
-    "pkg": "pkg . --targets node18-win-x64 --output utkina-admin.exe"
+    "build:win": "npm run build && pkg . --targets node18-win-x64 --output build/utkina-admin.exe",
+    "pkg": "pkg . --targets node18-win-x64 --output build/utkina-admin.exe"
   },
   "dependencies": {
     "@emotion/react": "^11.13.3",
@@ -31,9 +31,6 @@
     "vite": "^5.4.10"
   },
   "pkg": {
-    "scripts": "server.pkg.cjs",
-    "assets": [
-      "dist/**/*"
-    ]
+    "scripts": "server.pkg.cjs"
   }
 }
