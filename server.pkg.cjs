@@ -6,12 +6,45 @@ const multer = require('multer');
 const fs = require('fs').promises;
 const path = require('path');
 
-// В exe: папка с exe = статика; проекты — на уровень выше (родитель папки с exe)
+// В exe: папка с exe = статика; проекты обычно на уровень выше.
+// Добавляем fallback на 2 уровня выше, чтобы переживать лишнюю вложенность после переноса.
 const isPkg = typeof process.pkg !== 'undefined';
 const appDir = isPkg ? path.dirname(process.execPath) : __dirname;
-const PROJECTS_ROOT = path.resolve(appDir, '..');
+const projectsRootCandidates = [
+  path.resolve(appDir, '..'),
+  path.resolve(appDir, '..', '..'),
+];
 // При запуске из exe статика рядом с exe; из исходников — из ./build
 const staticDir = isPkg ? appDir : path.join(appDir, 'build');
+let PROJECTS_ROOT = projectsRootCandidates[0];
+
+async function hasProjectDataRoot(rootPath) {
+  const entries = await fs.readdir(rootPath, { withFileTypes: true });
+  for (const e of entries) {
+    if (!e.isDirectory() || e.name.startsWith('.') || e.name === 'admin') continue;
+    const dataDir = path.join(rootPath, e.name, 'public', 'data');
+    try {
+      await fs.access(dataDir);
+      return true;
+    } catch {
+      // check next entry
+    }
+  }
+  return false;
+}
+
+async function detectProjectsRoot() {
+  for (const candidate of projectsRootCandidates) {
+    try {
+      if (await hasProjectDataRoot(candidate)) {
+        PROJECTS_ROOT = candidate;
+        return;
+      }
+    } catch {
+      // try next candidate
+    }
+  }
+}
 
 const app = express();
 app.use(cors());
@@ -120,4 +153,10 @@ app.get('/api/images', async (req, res) => {
 app.get('*', (req, res) => res.sendFile(path.join(staticDir, 'index.html')));
 
 const PORT = process.env.PORT || 3333;
-app.listen(PORT, () => console.log(`Admin: http://localhost:${PORT}`));
+detectProjectsRoot()
+  .catch(() => {
+    // keep default root when auto-detect fails
+  })
+  .finally(() => {
+    app.listen(PORT, () => console.log(`Admin: http://localhost:${PORT} (projects root: ${PROJECTS_ROOT})`));
+  });
