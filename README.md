@@ -1,45 +1,42 @@
-# Общая админка проектов Уткина дача
+# CMS Уткина дача
 
-Редактирование данных из `public/data` всех проектов в одной папке и загрузка изображений. Интерфейс на **React** и **Material UI** (таблицы, вкладки, формы).
+Единая система управления контентом по ТЗ: **PostgreSQL**, **Express REST + GraphQL**, **JWT** с ролями (`admin` / `editor` / `viewer`).
 
-## Запуск
-
-**Режим разработки** (интерфейс на Vite, API на Express):
+## Быстрый старт
 
 ```bash
-cd admin
+cd admin-dacha
+cp .env.example .env   # при необходимости
 npm install
-npm run dev
+npm run db:up          # Docker: PostgreSQL на :5432
+npm run db:seed        # миграции + seed из */public/data/*.json
+npm run dev            # API :3333 + Vite :5174
 ```
 
-Откройте: **http://localhost:5173** (запросы к API проксируются на порт 3333).
+Откройте http://localhost:5174  
+Логин по умолчанию: `admin` / `admin123` (из `.env`).
 
-**Продакшен** (собранный фронт отдаёт Express):
+Продакшен:
 
 ```bash
 npm run build
 npm start
 ```
 
-Откройте: **http://localhost:3333**
+http://localhost:3333
 
-**Сборка exe для Windows** (через [pkg](https://github.com/vercel/pkg)):
+## API
 
-```bash
-npm run build:exe
-```
+| Метод | Путь | Auth | Описание |
+|--------|------|------|----------|
+| POST | `/api/auth/login` | — | JWT |
+| GET | `/api/projects` | JWT | Список проектов и документов |
+| GET/PUT | `/api/projects/:id/documents/:key` | JWT | Чтение / сохранение (PUT → БД + sync JSON) |
+| POST | `/api/media` | JWT editor+ | Загрузка файла |
+| GET | `/api/public/projects/:id/documents/:key` | — | Публичное чтение для киосков |
+| POST | `/api/sync/:projectId` | JWT | Выгрузка документов проекта на диск |
+| * | `/graphql` | JWT для queries | GraphQL Yoga |
 
-Готовый к переносу комплект будет в папке **`build/`**: exe, `index.html` и `assets/`. Скопируйте всю папку `build` на другой ПК. На Windows поместите эту папку как `admin` внутри корня проектов (рядом с папками проектов), запустите `utkina-admin.exe`, откройте в браузере **http://localhost:3333**.
+## Переменные окружения
 
-## Возможности
-
-- **Проекты** — слева в боковой панели (Drawer) список проектов. Раскройте проект и выберите JSON-файл.
-- **Данные** — выбранный файл можно просматривать в виде **таблицы** (если это массив объектов) или как **сырой JSON**. Переключение кнопками «Таблица» / «JSON». Сохранение с проверкой валидности JSON.
-- **Загрузка изображений** — вкладка с формой MUI: проект, папка в `public`, выбор файла. После загрузки показывается URL и кнопка «Копировать».
-
-## Порядок работы с изображениями
-
-1. Загрузите файл через админку в нужный проект и папку (например `data/images`).
-2. В данных используйте URL в формате `/data/images/имя-файла.jpg` (или тот путь, который показан после загрузки).
-
-Файлы сохраняются в `<проект>/public/<указанная папка>/`.
+См. `.env.example`: `DATABASE_URL`, `JWT_SECRET`, `PROJECTS_ROOT`, `ADMIN_LOGIN`, `ADMIN_PASSWORD`.

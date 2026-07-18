@@ -30,6 +30,7 @@ import {
   Select,
   MenuItem,
   Snackbar,
+  Chip,
 } from '@mui/material';
 import FolderIcon from '@mui/icons-material/Folder';
 import FolderOpenIcon from '@mui/icons-material/FolderOpen';
@@ -38,9 +39,13 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import SaveIcon from '@mui/icons-material/Save';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import LogoutIcon from '@mui/icons-material/Logout';
+import SyncIcon from '@mui/icons-material/Sync';
 
 const DRAWER_WIDTH = 280;
 const API = '/api';
+const TOKEN_KEY = 'utkina_cms_token';
+const USER_KEY = 'utkina_cms_user';
 
 const theme = createTheme({
   typography: { fontFamily: '"Roboto", sans-serif' },
@@ -50,7 +55,6 @@ function isArrayOfObjects(data) {
   return Array.isArray(data) && data.length > 0 && data.every((item) => item && typeof item === 'object' && !Array.isArray(item));
 }
 
-/** Список массивов, которые можно показать таблицей: корень или вложенные ключи */
 function getTableableArrays(data) {
   if (!data) return [];
   const list = [];
@@ -83,99 +87,323 @@ function isEditableValue(value) {
   return value == null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
 }
 
+function getStoredAuth() {
+  try {
+    const token = sessionStorage.getItem(TOKEN_KEY);
+    const userRaw = sessionStorage.getItem(USER_KEY);
+    const user = userRaw ? JSON.parse(userRaw) : null;
+    return token && user ? { token, user } : null;
+  } catch {
+    return null;
+  }
+}
+
+async function apiFetch(path, { token, method = 'GET', body, headers = {} } = {}) {
+  const opts = {
+    method,
+    headers: { ...headers },
+  };
+  if (token) opts.headers.Authorization = `Bearer ${token}`;
+  if (body !== undefined) {
+    if (body instanceof FormData) {
+      opts.body = body;
+    } else {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = typeof body === 'string' ? body : JSON.stringify(body);
+    }
+  }
+  const res = await fetch(`${API}${path}`, opts);
+  const text = await res.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = text;
+  }
+  if (!res.ok) {
+    const message = (data && data.error) || res.statusText || 'Request failed';
+    const err = new Error(message);
+    err.status = res.status;
+    throw err;
+  }
+  return data;
+}
+
+function LoginScreen({ onLogin }) {
+  const [login, setLogin] = useState('admin');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      const data = await apiFetch('/auth/login', {
+        method: 'POST',
+        body: { login, password },
+      });
+      onLogin(data.token, data.user);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <ThemeProvider theme={theme}>
+      <Box sx={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: '#f5f5f5' }}>
+        <Paper sx={{ p: 4, width: 360 }} component='form' onSubmit={submit}>
+          <Typography variant='h6' gutterBottom>
+            CMS Уткина дача
+          </Typography>
+          <Typography variant='body2' color='text.secondary' sx={{ mb: 2 }}>
+            Вход по JWT (ролевой доступ)
+          </Typography>
+          {error && (
+            <Alert severity='error' sx={{ mb: 2 }}>
+              {error}
+            </Alert>
+          )}
+          <TextField
+            label='Логин'
+            fullWidth
+            margin='normal'
+            value={login}
+            onChange={(e) => setLogin(e.target.value)}
+            autoFocus
+          />
+          <TextField
+            label='Пароль'
+            type='password'
+            fullWidth
+            margin='normal'
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <Button type='submit' variant='contained' fullWidth sx={{ mt: 2 }} disabled={loading}>
+            {loading ? 'Вход…' : 'Войти'}
+          </Button>
+        </Paper>
+      </Box>
+    </ThemeProvider>
+  );
+}
+
+function UsersTab({ token }) {
+  const [users, setUsers] = useState([]);
+  const [login, setLogin] = useState('');
+  const [password, setPassword] = useState('');
+  const [role, setRole] = useState('editor');
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+
+  const load = useCallback(async () => {
+    const data = await apiFetch('/auth/users', { token });
+    setUsers(data.users || []);
+  }, [token]);
+
+  useEffect(() => {
+    load().catch((e) => setError(e.message));
+  }, [load]);
+
+  const createUser = async (e) => {
+    e.preventDefault();
+    setError('');
+    setMessage('');
+    try {
+      await apiFetch('/auth/users', { token, method: 'POST', body: { login, password, role } });
+      setLogin('');
+      setPassword('');
+      setMessage('Пользователь создан');
+      await load();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  return (
+    <Box>
+      {error && (
+        <Alert severity='error' sx={{ mb: 1 }} onClose={() => setError('')}>
+          {error}
+        </Alert>
+      )}
+      {message && (
+        <Alert severity='success' sx={{ mb: 1 }} onClose={() => setMessage('')}>
+          {message}
+        </Alert>
+      )}
+      <Paper sx={{ p: 2, mb: 2, maxWidth: 480 }} component='form' onSubmit={createUser}>
+        <Typography variant='subtitle2' gutterBottom>
+          Новый пользователь
+        </Typography>
+        <TextField label='Логин' fullWidth margin='dense' value={login} onChange={(e) => setLogin(e.target.value)} required />
+        <TextField
+          label='Пароль'
+          type='password'
+          fullWidth
+          margin='dense'
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+        />
+        <FormControl fullWidth margin='dense'>
+          <InputLabel>Роль</InputLabel>
+          <Select value={role} label='Роль' onChange={(e) => setRole(e.target.value)}>
+            <MenuItem value='admin'>admin</MenuItem>
+            <MenuItem value='editor'>editor</MenuItem>
+            <MenuItem value='viewer'>viewer</MenuItem>
+          </Select>
+        </FormControl>
+        <Button type='submit' variant='contained' sx={{ mt: 1 }}>
+          Создать
+        </Button>
+      </Paper>
+      <TableContainer component={Paper} sx={{ maxWidth: 640 }}>
+        <Table size='small'>
+          <TableHead>
+            <TableRow>
+              <TableCell>ID</TableCell>
+              <TableCell>Логин</TableCell>
+              <TableCell>Роль</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {users.map((u) => (
+              <TableRow key={u.id}>
+                <TableCell>{u.id}</TableCell>
+                <TableCell>{u.login}</TableCell>
+                <TableCell>{u.role}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
+    </Box>
+  );
+}
+
 export default function App() {
+  const [auth, setAuth] = useState(() => getStoredAuth());
+  const token = auth?.token;
+  const user = auth?.user;
+  const canWrite = user && (user.role === 'admin' || user.role === 'editor');
+
   const [projects, setProjects] = useState([]);
   const [openProjects, setOpenProjects] = useState({});
   const [currentProject, setCurrentProject] = useState(null);
-  const [currentFile, setCurrentFile] = useState(null);
+  const [currentKey, setCurrentKey] = useState(null);
   const [fileContent, setFileContent] = useState('');
   const [dirty, setDirty] = useState(false);
   const [status, setStatus] = useState({ text: '', severity: 'info' });
   const [jsonError, setJsonError] = useState('');
   const [tabIndex, setTabIndex] = useState(0);
-  const [dataView, setDataView] = useState('table'); // 'table' | 'json'
-  const [selectedTableKey, setSelectedTableKey] = useState(''); // '' = корень, иначе ключ вложенного массива
+  const [dataView, setDataView] = useState('table');
+  const [selectedTableKey, setSelectedTableKey] = useState('');
   const [uploadProject, setUploadProject] = useState('');
   const [uploadPath, setUploadPath] = useState('data/images');
   const [uploadedUrl, setUploadedUrl] = useState('');
   const [snack, setSnack] = useState({ open: false, message: '' });
   const fileInputRef = useRef(null);
 
+  const handleLogin = (nextToken, nextUser) => {
+    sessionStorage.setItem(TOKEN_KEY, nextToken);
+    sessionStorage.setItem(USER_KEY, JSON.stringify(nextUser));
+    setAuth({ token: nextToken, user: nextUser });
+  };
+
+  const handleLogout = () => {
+    sessionStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(USER_KEY);
+    setAuth(null);
+  };
+
   const loadProjects = useCallback(async () => {
-    const res = await fetch(`${API}/projects`);
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
-    setProjects(data.projects);
+    if (!token) return;
+    const data = await apiFetch('/projects', { token });
+    setProjects(data.projects || []);
     setOpenProjects((prev) => {
       const next = { ...prev };
-      if (data.projects.length && !Object.keys(next).length) next[data.projects[0].id] = true;
+      if (data.projects?.length && !Object.keys(next).length) next[data.projects[0].id] = true;
       return next;
     });
-  }, []);
+  }, [token]);
 
   useEffect(() => {
-    loadProjects().catch((e) => setStatus({ text: e.message, severity: 'error' }));
-  }, [loadProjects]);
+    if (!token) return;
+    loadProjects().catch((e) => {
+      if (e.status === 401) handleLogout();
+      else setStatus({ text: e.message, severity: 'error' });
+    });
+  }, [loadProjects, token]);
 
   useEffect(() => {
     setSelectedTableKey('');
-  }, [currentProject, currentFile]);
+  }, [currentProject, currentKey]);
+
+  if (!auth) {
+    return <LoginScreen onLogin={handleLogin} />;
+  }
 
   const toggleProject = (id) => setOpenProjects((prev) => ({ ...prev, [id]: !prev[id] }));
 
-  const selectFile = useCallback(
-    async (projectId, filePath) => {
-      if (dirty && !window.confirm('Несохранённые изменения. Всё равно перейти?')) return;
-      setCurrentProject(projectId);
-      setCurrentFile(filePath);
-      setDirty(false);
-      setJsonError('');
-      try {
-        const res = await fetch(`${API}/file?project=${encodeURIComponent(projectId)}&file=${encodeURIComponent(filePath)}`);
-        if (!res.ok) throw new Error(await res.text());
-        const text = await res.text();
-        try {
-          const parsed = JSON.parse(text);
-          setFileContent(JSON.stringify(parsed, null, 2));
-        } catch {
-          setFileContent(text);
-        }
-      } catch (err) {
-        setStatus({ text: err.message, severity: 'error' });
-        setFileContent('');
-      }
-    },
-    [dirty],
-  );
-
-  const validateAndSave = useCallback(async () => {
-    if (!currentProject || !currentFile) return;
-    const raw = fileContent.trim();
-    let content = raw;
+  const selectFile = async (projectId, documentKey) => {
+    if (dirty && !window.confirm('Несохранённые изменения. Всё равно перейти?')) return;
+    setCurrentProject(projectId);
+    setCurrentKey(documentKey);
+    setDirty(false);
+    setJsonError('');
     try {
-      JSON.parse(raw);
-      content = raw;
+      const data = await apiFetch(`/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(documentKey)}`, {
+        token,
+      });
+      setFileContent(JSON.stringify(data.payload, null, 2));
+    } catch (err) {
+      setStatus({ text: err.message, severity: 'error' });
+      setFileContent('');
+    }
+  };
+
+  const validateAndSave = async () => {
+    if (!currentProject || !currentKey) return;
+    if (!canWrite) {
+      setStatus({ text: 'Недостаточно прав для записи (нужна роль editor или admin)', severity: 'error' });
+      return;
+    }
+    const raw = fileContent.trim();
+    let payload;
+    try {
+      payload = JSON.parse(raw);
     } catch (err) {
       setJsonError(err.message);
       return;
     }
     setJsonError('');
     try {
-      const res = await fetch(`${API}/file?project=${encodeURIComponent(currentProject)}&file=${encodeURIComponent(currentFile)}`, {
+      await apiFetch(`/projects/${encodeURIComponent(currentProject)}/documents/${encodeURIComponent(currentKey)}`, {
+        token,
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content }),
+        body: { payload },
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || res.statusText);
-      }
       setDirty(false);
-      setStatus({ text: 'Сохранено', severity: 'success' });
+      setStatus({ text: 'Сохранено в БД и синхронизировано в public/data', severity: 'success' });
     } catch (err) {
       setStatus({ text: err.message, severity: 'error' });
     }
-  }, [currentProject, currentFile, fileContent]);
+  };
+
+  const syncProject = async () => {
+    if (!currentProject || !canWrite) return;
+    try {
+      const data = await apiFetch(`/sync/${encodeURIComponent(currentProject)}`, { token, method: 'POST', body: {} });
+      setSnack({ open: true, message: `Синхронизировано файлов: ${data.written?.length || 0}` });
+    } catch (err) {
+      setStatus({ text: err.message, severity: 'error' });
+    }
+  };
 
   const parsedData = (() => {
     try {
@@ -192,6 +420,10 @@ export default function App() {
 
   const handleUpload = async (e) => {
     e.preventDefault();
+    if (!canWrite) {
+      setStatus({ text: 'Недостаточно прав для загрузки', severity: 'error' });
+      return;
+    }
     const project = uploadProject;
     const path = uploadPath.trim() || 'data/images';
     const file = fileInputRef.current?.files?.[0];
@@ -201,14 +433,10 @@ export default function App() {
     formData.append('path', path);
     formData.append('file', file);
     try {
-      const res = await fetch(`${API}/upload`, { method: 'POST', body: formData });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || res.statusText);
-      }
-      const data = await res.json();
+      const data = await apiFetch('/media', { token, method: 'POST', body: formData });
       setUploadedUrl(data.url);
       if (fileInputRef.current) fileInputRef.current.value = '';
+      setStatus({ text: 'Файл загружен', severity: 'success' });
     } catch (err) {
       setStatus({ text: err.message, severity: 'error' });
     }
@@ -220,26 +448,31 @@ export default function App() {
   };
 
   const handleTableCellChange = (rowIndex, key, newValue) => {
-    if (!currentTableEntry || parsedData == null) return;
-    let newData;
+    if (!canWrite || !currentTableEntry || parsedData == null) return;
     const arr = currentTableEntry.data;
     const newArr = arr.map((row, i) => (i === rowIndex ? { ...row, [key]: newValue } : row));
-    if (currentTableEntry.key == null) {
-      newData = newArr;
-    } else {
-      newData = { ...parsedData, [currentTableEntry.key]: newArr };
-    }
+    const newData = currentTableEntry.key == null ? newArr : { ...parsedData, [currentTableEntry.key]: newArr };
     setFileContent(JSON.stringify(newData, null, 2));
     setDirty(true);
   };
 
+  const tabs = [
+    { label: 'Данные', index: 0 },
+    { label: 'Медиа', index: 1 },
+    ...(user.role === 'admin' ? [{ label: 'Пользователи', index: 2 }] : []),
+  ];
+
   return (
     <ThemeProvider theme={theme}>
-      <AppBar position='fixed' sx={{ zIndex: (theme) => theme.zIndex.drawer + 1 }}>
+      <AppBar position='fixed' sx={{ zIndex: (t) => t.zIndex.drawer + 1 }}>
         <Toolbar>
-          <Typography variant='h6' noWrap component='div'>
-            Админка проектов — Уткина дача
+          <Typography variant='h6' noWrap component='div' sx={{ flexGrow: 1 }}>
+            CMS Уткина дача
           </Typography>
+          <Chip label={`${user.login} (${user.role})`} size='small' sx={{ mr: 2, bgcolor: 'rgba(255,255,255,0.2)', color: '#fff' }} />
+          <Button color='inherit' startIcon={<LogoutIcon />} onClick={handleLogout}>
+            Выйти
+          </Button>
         </Toolbar>
       </AppBar>
       <Drawer
@@ -280,8 +513,12 @@ export default function App() {
                 </ListItemButton>
                 <Collapse in={!!openProjects[p.id]} timeout='auto' unmountOnExit>
                   <List component='div' disablePadding sx={{ pl: 2 }}>
-                    {p.dataFiles.map((f) => (
-                      <ListItemButton key={f.path} selected={currentProject === p.id && currentFile === f.path} onClick={() => selectFile(p.id, f.path)}>
+                    {(p.dataFiles || []).map((f) => (
+                      <ListItemButton
+                        key={f.key || f.path}
+                        selected={currentProject === p.id && currentKey === f.key}
+                        onClick={() => selectFile(p.id, f.key)}
+                      >
                         <InsertDriveFileIcon sx={{ mr: 0.5, fontSize: 18 }} />
                         <ListItemText primary={f.name} />
                       </ListItemButton>
@@ -294,9 +531,14 @@ export default function App() {
         </Box>
       </Drawer>
       <Box component='main' sx={{ flexGrow: 1, p: 2, ml: `${DRAWER_WIDTH}px`, mt: 7 }}>
-        <Tabs value={tabIndex} onChange={(_, v) => setTabIndex(v)} sx={{ mb: 2 }}>
-          <Tab label='Данные (JSON)' />
-          <Tab label='Загрузка изображений' />
+        <Tabs
+          value={tabIndex}
+          onChange={(_, v) => setTabIndex(v)}
+          sx={{ mb: 2 }}
+        >
+          {tabs.map((t) => (
+            <Tab key={t.label} label={t.label} />
+          ))}
         </Tabs>
 
         {tabIndex === 0 && (
@@ -315,7 +557,7 @@ export default function App() {
             )}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, flexWrap: 'wrap' }}>
               <Typography variant='body2' color='text.secondary' sx={{ flex: 1 }}>
-                {currentFile ? `${currentProject} / ${currentFile}` : 'Выберите файл слева'}
+                {currentKey ? `${currentProject} / ${currentKey}` : 'Выберите документ слева'}
               </Typography>
               {canShowTable && (
                 <>
@@ -341,7 +583,20 @@ export default function App() {
                   </ToggleButtonGroup>
                 </>
               )}
-              <Button variant='contained' startIcon={<SaveIcon />} disabled={!currentProject || !currentFile || !dirty} onClick={validateAndSave}>
+              <Button
+                variant='outlined'
+                startIcon={<SyncIcon />}
+                disabled={!currentProject || !canWrite}
+                onClick={syncProject}
+              >
+                Sync на диск
+              </Button>
+              <Button
+                variant='contained'
+                startIcon={<SaveIcon />}
+                disabled={!currentProject || !currentKey || !dirty || !canWrite}
+                onClick={validateAndSave}
+              >
                 Сохранить
               </Button>
             </Box>
@@ -364,7 +619,7 @@ export default function App() {
                         <TableCell sx={{ width: 48 }}>{idx + 1}</TableCell>
                         {tableKeys.map((key) => {
                           const value = row[key];
-                          const editable = isEditableValue(value);
+                          const editable = canWrite && isEditableValue(value);
                           return (
                             <TableCell key={key} sx={{ padding: 0.5, verticalAlign: 'top' }}>
                               {editable ? (
@@ -414,10 +669,12 @@ export default function App() {
                 maxRows={40}
                 value={fileContent}
                 onChange={(e) => {
+                  if (!canWrite) return;
                   setFileContent(e.target.value);
                   setDirty(true);
                 }}
-                placeholder='Выберите файл в списке проектов'
+                InputProps={{ readOnly: !canWrite }}
+                placeholder='Выберите документ в списке проектов'
                 spellCheck={false}
                 sx={{
                   '& .MuiInputBase-input': { fontFamily: 'monospace', fontSize: 13 },
@@ -430,7 +687,7 @@ export default function App() {
         {tabIndex === 1 && (
           <Paper sx={{ p: 2, maxWidth: 480 }}>
             <Typography variant='subtitle2' color='text.secondary' gutterBottom>
-              Загрузка изображений
+              Загрузка изображений (API + media_assets)
             </Typography>
             <Box component='form' onSubmit={handleUpload} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <FormControl fullWidth required>
@@ -445,11 +702,11 @@ export default function App() {
                 </Select>
               </FormControl>
               <TextField label='Папка в public' value={uploadPath} onChange={(e) => setUploadPath(e.target.value)} placeholder='data/images' fullWidth />
-              <Button variant='outlined' component='label' startIcon={<CloudUploadIcon />}>
+              <Button variant='outlined' component='label' startIcon={<CloudUploadIcon />} disabled={!canWrite}>
                 Выбрать файл
                 <input ref={fileInputRef} type='file' name='uploadFile' accept='image/*,.png,.jpg,.jpeg,.gif,.webp' hidden />
               </Button>
-              <Button type='submit' variant='contained'>
+              <Button type='submit' variant='contained' disabled={!canWrite}>
                 Загрузить
               </Button>
             </Box>
@@ -463,6 +720,8 @@ export default function App() {
             )}
           </Paper>
         )}
+
+        {tabIndex === 2 && user.role === 'admin' && <UsersTab token={token} />}
       </Box>
       <Snackbar
         open={snack.open}
