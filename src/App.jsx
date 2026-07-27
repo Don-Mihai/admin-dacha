@@ -38,9 +38,18 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import SaveIcon from '@mui/icons-material/Save';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import Login from './Login';
+import UsersPanel from './UsersPanel';
+import { getSession, logout as clearSession } from './auth';
 
 const DRAWER_WIDTH = 280;
 const API = '/api';
+
+const ROLE_LABELS = {
+  admin: 'Админ',
+  editor: 'Редактор',
+  viewer: 'Просмотр',
+};
 
 const theme = createTheme({
   typography: { fontFamily: '"Roboto", sans-serif' },
@@ -84,6 +93,7 @@ function isEditableValue(value) {
 }
 
 export default function App() {
+  const [user, setUser] = useState(() => getSession());
   const [projects, setProjects] = useState([]);
   const [openProjects, setOpenProjects] = useState({});
   const [currentProject, setCurrentProject] = useState(null);
@@ -101,6 +111,20 @@ export default function App() {
   const [snack, setSnack] = useState({ open: false, message: '' });
   const fileInputRef = useRef(null);
 
+  const canEdit = user && (user.role === 'admin' || user.role === 'editor');
+  const isAdmin = user && user.role === 'admin';
+
+  const handleLogout = () => {
+    clearSession();
+    setUser(null);
+    setProjects([]);
+    setCurrentProject(null);
+    setCurrentFile(null);
+    setFileContent('');
+    setDirty(false);
+    setTabIndex(0);
+  };
+
   const loadProjects = useCallback(async () => {
     const res = await fetch(`${API}/projects`);
     if (!res.ok) throw new Error(await res.text());
@@ -114,12 +138,18 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!user) return;
     loadProjects().catch((e) => setStatus({ text: e.message, severity: 'error' }));
-  }, [loadProjects]);
+  }, [user, loadProjects]);
 
   useEffect(() => {
     setSelectedTableKey('');
   }, [currentProject, currentFile]);
+
+  useEffect(() => {
+    if (!canEdit && tabIndex === 1) setTabIndex(0);
+    if (!isAdmin && tabIndex === 2) setTabIndex(0);
+  }, [canEdit, isAdmin, tabIndex]);
 
   const toggleProject = (id) => setOpenProjects((prev) => ({ ...prev, [id]: !prev[id] }));
 
@@ -149,7 +179,7 @@ export default function App() {
   );
 
   const validateAndSave = useCallback(async () => {
-    if (!currentProject || !currentFile) return;
+    if (!currentProject || !currentFile || !canEdit) return;
     const raw = fileContent.trim();
     let content = raw;
     try {
@@ -175,7 +205,7 @@ export default function App() {
     } catch (err) {
       setStatus({ text: err.message, severity: 'error' });
     }
-  }, [currentProject, currentFile, fileContent]);
+  }, [currentProject, currentFile, fileContent, canEdit]);
 
   const parsedData = (() => {
     try {
@@ -192,6 +222,7 @@ export default function App() {
 
   const handleUpload = async (e) => {
     e.preventDefault();
+    if (!canEdit) return;
     const project = uploadProject;
     const path = uploadPath.trim() || 'data/images';
     const file = fileInputRef.current?.files?.[0];
@@ -220,7 +251,7 @@ export default function App() {
   };
 
   const handleTableCellChange = (rowIndex, key, newValue) => {
-    if (!currentTableEntry || parsedData == null) return;
+    if (!canEdit || !currentTableEntry || parsedData == null) return;
     let newData;
     const arr = currentTableEntry.data;
     const newArr = arr.map((row, i) => (i === rowIndex ? { ...row, [key]: newValue } : row));
@@ -233,13 +264,27 @@ export default function App() {
     setDirty(true);
   };
 
+  if (!user) {
+    return (
+      <ThemeProvider theme={theme}>
+        <Login onSuccess={setUser} />
+      </ThemeProvider>
+    );
+  }
+
   return (
     <ThemeProvider theme={theme}>
-      <AppBar position='fixed' sx={{ zIndex: (theme) => theme.zIndex.drawer + 1 }}>
+      <AppBar position='fixed' sx={{ zIndex: (t) => t.zIndex.drawer + 1 }}>
         <Toolbar>
-          <Typography variant='h6' noWrap component='div'>
+          <Typography variant='h6' noWrap component='div' sx={{ flexGrow: 1 }}>
             Админка проектов — Уткина дача
           </Typography>
+          <Typography variant='body2' sx={{ mr: 2 }}>
+            {user.username} ({ROLE_LABELS[user.role] || user.role})
+          </Typography>
+          <Button color='inherit' onClick={handleLogout}>
+            Выйти
+          </Button>
         </Toolbar>
       </AppBar>
       <Drawer
@@ -296,7 +341,8 @@ export default function App() {
       <Box component='main' sx={{ flexGrow: 1, p: 2, ml: `${DRAWER_WIDTH}px`, mt: 7 }}>
         <Tabs value={tabIndex} onChange={(_, v) => setTabIndex(v)} sx={{ mb: 2 }}>
           <Tab label='Данные (JSON)' />
-          <Tab label='Загрузка изображений' />
+          {canEdit && <Tab label='Загрузка изображений' />}
+          {isAdmin && <Tab label='Пользователи' />}
         </Tabs>
 
         {tabIndex === 0 && (
@@ -316,6 +362,7 @@ export default function App() {
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, flexWrap: 'wrap' }}>
               <Typography variant='body2' color='text.secondary' sx={{ flex: 1 }}>
                 {currentFile ? `${currentProject} / ${currentFile}` : 'Выберите файл слева'}
+                {!canEdit && currentFile ? ' (только просмотр)' : ''}
               </Typography>
               {canShowTable && (
                 <>
@@ -341,9 +388,11 @@ export default function App() {
                   </ToggleButtonGroup>
                 </>
               )}
-              <Button variant='contained' startIcon={<SaveIcon />} disabled={!currentProject || !currentFile || !dirty} onClick={validateAndSave}>
-                Сохранить
-              </Button>
+              {canEdit && (
+                <Button variant='contained' startIcon={<SaveIcon />} disabled={!currentProject || !currentFile || !dirty} onClick={validateAndSave}>
+                  Сохранить
+                </Button>
+              )}
             </Box>
             {dataView === 'table' && canShowTable && currentTableEntry ? (
               <TableContainer component={Paper} sx={{ maxHeight: '70vh' }}>
@@ -364,7 +413,7 @@ export default function App() {
                         <TableCell sx={{ width: 48 }}>{idx + 1}</TableCell>
                         {tableKeys.map((key) => {
                           const value = row[key];
-                          const editable = isEditableValue(value);
+                          const editable = canEdit && isEditableValue(value);
                           return (
                             <TableCell key={key} sx={{ padding: 0.5, verticalAlign: 'top' }}>
                               {editable ? (
@@ -414,9 +463,11 @@ export default function App() {
                 maxRows={40}
                 value={fileContent}
                 onChange={(e) => {
+                  if (!canEdit) return;
                   setFileContent(e.target.value);
                   setDirty(true);
                 }}
+                InputProps={{ readOnly: !canEdit }}
                 placeholder='Выберите файл в списке проектов'
                 spellCheck={false}
                 sx={{
@@ -427,7 +478,7 @@ export default function App() {
           </Box>
         )}
 
-        {tabIndex === 1 && (
+        {canEdit && tabIndex === 1 && (
           <Paper sx={{ p: 2, maxWidth: 480 }}>
             <Typography variant='subtitle2' color='text.secondary' gutterBottom>
               Загрузка изображений
@@ -462,6 +513,10 @@ export default function App() {
               </Box>
             )}
           </Paper>
+        )}
+
+        {isAdmin && tabIndex === (canEdit ? 2 : 1) && (
+          <UsersPanel currentUser={user} onUserUpdated={setUser} />
         )}
       </Box>
       <Snackbar
