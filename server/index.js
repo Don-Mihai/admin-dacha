@@ -56,7 +56,7 @@ async function bootstrap() {
   app.listen(config.port, () => {
     console.log(`CMS Admin API: http://localhost:${config.port}`);
     console.log(`GraphQL:       http://localhost:${config.port}/graphql`);
-    console.log(`Login:         ${config.adminLogin} / (ADMIN_PASSWORD from .env)`);
+    console.log(`Login:         ${config.adminLogin} / (ADMIN_PASSWORD or default)`);
   });
 }
 
